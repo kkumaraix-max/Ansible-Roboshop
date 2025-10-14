@@ -1,0 +1,65 @@
+- name: setup maven
+  hosts: shipping
+  become: true
+  tasks:
+    - name: install maven
+      ansible.builtin.dnf: 
+        name: "{{ item }}"
+        state: present
+      loop:
+      - maven
+      - mysql
+    - name: install mysql python 
+      ansible.builtin.pip:
+        executable: pip3.9
+        name: "{{ item }}"
+      loop:
+      - cryptography
+      - PyMySQL
+    - name: create roboshop system user
+      ansible.builtin.user:
+        name: roboshop
+        comment: RoboShop System user
+        system: true
+        shell: /sbin/nologin
+        home: /app
+    - name: create app directory
+      ansible.builtin.file: 
+        state: directory
+        path: /app
+    - name: download code
+      ansible.builtin.get_url:
+        url: https://roboshop-artifacts.s3.amazonaws.com/shipping-v3.zip
+        dest: /tmp/shipping.zip
+    - name: unzip code
+      ansible.builtin.unarchive:
+        src: /tmp/shipping.zip
+        dest: /app
+        remote_src: yes
+    - name: install dependencies
+      ansible.builtin.command: mvn clean package 
+      args: 
+        chdir: /app
+    - name: move jar
+      ansible.builtin.command: mv target/shipping-1.0.jar shipping.jar 
+      args:
+        chdir: /app
+    - name: setup shipping service
+      ansible.builtin.copy:
+        src: shipping.service
+        dest: /etc/systemd/system/shipping.service
+    - name: load app,db & master schemas
+      community.mysql.mysql_db:
+        state: import
+        name: all
+        login_host: mysql.anilkathoju.space
+        login_user: root
+        login_password: RoboShop@1
+        target: "{{ item }}"
+      loop:
+      - /app/db/schema.sql
+      - /app/db/app-user.sql
+      - /app/db/master-data.sql
+
+
+        

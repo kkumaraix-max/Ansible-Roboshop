@@ -1,0 +1,61 @@
+- name: Create EC2 & Updeate r53 records
+  hosts: local
+  connection: local
+  gather_facts: false
+  vars:
+    AMI_ID: ami-09c813fb71547fc4f
+    SG_ID: sg-0a1153447ef389531
+    DOMAIN: "anilkathoju.space"
+    ZONE_ID: "Z096778411CYC46C0VA5Q"
+ #   instances:
+ #     - mongodb
+  tasks:
+    - name: start an instance
+      amazon.aws.ec2_instance:
+       name: "{{ item }}"
+       instance_type: t3.micro
+       security_group: "{{ SG_ID }}"
+       image_id: "{{ AMI_ID }}"
+       tags:
+        name: "{{ item }}"
+      loop: "{{ instances }}"
+      register: ec2_output
+    - name: print ec2_output
+      ansible.builtin.debug:
+        msg: "{{ ec2_output }}"
+    - name: Create R53 private IP records
+      amazon.aws.route53:
+        state: present
+        zone: "{{ DOMAIN }}"
+        record: "{{ item.item }}.{{ DOMAIN }}"
+        type: A
+        ttl: 60
+        value: "{{ item.instances[0].private_ip_address }}"
+        wait: true
+        overwrite: true
+      loop: "{{ ec2_output.results }}"
+
+    - name: Create R53 public IP record for frontend
+      amazon.aws.route53:
+        state: present
+        zone: "{{ DOMAIN }}"
+        record: "{{ DOMAIN }}"
+        type: A
+        ttl: 60
+        value: "{{ item.instances[0].public_ip_address }}"
+        wait: true
+        overwrite: true
+      loop: "{{ ec2_output.results }}"
+      when: item.item == "frontend"
+
+    - name: Print hostname and private IP
+      ansible.builtin.debug:
+        msg: "{{ item.item }} : {{ item.instances[0].private_ip_address }}"
+      loop: "{{ ec2_output.results }}"
+
+    - name: Print frontend public IP
+      ansible.builtin.debug:
+        msg: "{{ item.item }} : {{ item.instances[0].public_ip_address }}"
+      loop: "{{ ec2_output.results }}"
+      when: item.item == "frontend"
+   

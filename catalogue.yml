@@ -1,0 +1,88 @@
+- name: setup catalogue
+  hosts: catalogue
+  become: true
+  tasks:
+    - name: disable nodejs
+      ansible.builtin.command: dnf module disable nodejs -y
+
+    - name: enable nodejs
+      ansible.builtin.command: dnf module enable nodejs:20 -y
+
+    - name: install nodejs
+      ansible.builtin.dnf:
+        name: nodejs
+        state: present
+    - name: create roboshop system user
+      ansible.builtin.user:
+        name: roboshop
+        comment: RoboShop System user
+        system: true
+        shell: /sbin/nologin
+        home: /app
+  
+    - name: create app directory
+      ansible.builtin.file:
+        state: directory
+        path: /app
+       
+    - name: Downloadc code
+      ansible.builtin.get_url:
+        url: https://roboshop-artifacts.s3.amazonaws.com/catalogue-v3.zip
+        dest: /tmp/catalogue.zip
+    
+    - name: unarchive code
+      ansible.builtin.unarchive:
+        src: /tmp/catalogue.zip
+        dest: /app
+        remote_src: yes
+
+    - name: install npm
+      community.general.npm:
+         name: npm
+         path: /app    
+
+    - name: configure catalogue service
+      ansible.builtin.copy:
+        src: catalogue.service
+        dest: /etc/systemd/system/catalogue.service   
+        
+    - name: copy mongo repo
+      ansible.builtin.copy:
+        src: mongo.repo
+        dest: /etc/yum.repos.d/mongo.repo
+
+    - name: install mongodb client
+      ansible.builtin.package:
+        name: mongodb-mongosh
+        state: present
+
+    # - name: load schema
+    #   ansible.builtin.shell: mongosh --host mongodb.anilkathoju.space </app/db/master-data.js
+
+   # - name: check data is loaded
+   #   ansible.builtin.shell: mongosh --host mongodb.anilkathoju.space
+
+    - name: Connect to MongoDB and check for catalogue DB
+      ansible.builtin.command: >
+        mongosh mongodb.anilkathoju.space --quiet --eval "db.getMongo().getDBNames().indexOf('catalogue')"
+      register: catalogue_output
+
+    - name: Print catalogue output
+      ansible.builtin.debug:
+        msg: "Catalogue index: {{ catalogue_output }}"
+
+    - name: Load products into MongoDB if catalogue DB not found
+      ansible.builtin.shell: |
+        mongosh --host mongodb.anilkathoju.space </app/db/master-data.js
+      when: catalogue_output.stdout | int < 0
+
+    # - name: data is loaded into mongodb or not Connect to MongoDB
+    #   ansible.builtin.command: mongosh --host mongodb.anilkathoju.space 
+
+    - name: daemon reload enable and start
+      ansible.builtin.systemd_service:
+        name: catalogue
+        enabled: true
+        state: started
+        daemon_reload: true
+      
